@@ -33,3 +33,6 @@ def chat(request: ChatRequest):
     )
 
     return {"response": response.choices[0].message.content}
+@app.get("/debug")
+def debug():
+    return {"api_key_loaded": bool(os.getenv("OPENAI_API_KEY"))}
