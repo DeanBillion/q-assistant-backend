@@ -34,3 +34,104 @@ def chat(request: ChatRequest):
 
     return {"response": response.choices[0].message.content}
 /debug
+from fastapi.responses import HTMLResponse
+
+@app.get("/q", response_class=HTMLResponse)
+def chat_ui():
+    return """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Q Assistant</title>
+<style>
+body {
+    font-family: Arial, sans-serif;
+    background:#0f172a;
+    color:white;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    margin:0;
+}
+#chat {
+    width:90%;
+    max-width:700px;
+    height:70vh;
+    overflow-y:auto;
+    border:1px solid #334155;
+    padding:15px;
+    margin-top:20px;
+    background:#020617;
+    border-radius:10px;
+}
+.message { margin-bottom:12px; }
+.user { color:#38bdf8; }
+.q { color:#4ade80; }
+
+#inputArea {
+    display:flex;
+    width:90%;
+    max-width:700px;
+    margin-top:10px;
+}
+
+input {
+    flex:1;
+    padding:10px;
+    font-size:16px;
+    border-radius:6px;
+    border:none;
+}
+
+button {
+    padding:10px 15px;
+    margin-left:6px;
+    border:none;
+    background:#22c55e;
+    color:white;
+    border-radius:6px;
+    cursor:pointer;
+}
+</style>
+</head>
+
+<body>
+
+<h2>Q Assistant</h2>
+
+<div id="chat"></div>
+
+<div id="inputArea">
+<input id="message" placeholder="Ask Q something..." />
+<button onclick="send()">Send</button>
+</div>
+
+<script>
+async function send() {
+    const input = document.getElementById("message");
+    const chat = document.getElementById("chat");
+
+    const text = input.value;
+    if (!text) return;
+
+    chat.innerHTML += `<div class='message user'><b>You:</b> ${text}</div>`;
+    input.value = "";
+
+    const response = await fetch("/chat", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({message: text})
+    });
+
+    const data = await response.json();
+
+    chat.innerHTML += `<div class='message q'><b>Q:</b> ${data.response}</div>`;
+    chat.scrollTop = chat.scrollHeight;
+}
+</script>
+
+</body>
+</html>
+"""
