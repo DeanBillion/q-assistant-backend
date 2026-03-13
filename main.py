@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from fastapi.responses import HTMLResponse
 from openai import OpenAI
 import os
 
@@ -17,9 +18,16 @@ and balance business and family life.
 class ChatRequest(BaseModel):
     message: str
 
+
 @app.get("/health")
 def health():
     return {"status": "Q backend running"}
+
+
+@app.get("/debug")
+def debug():
+    return {"api_key_loaded": bool(os.getenv("OPENAI_API_KEY"))}
+
 
 @app.post("/chat")
 def chat(request: ChatRequest):
@@ -33,8 +41,7 @@ def chat(request: ChatRequest):
     )
 
     return {"response": response.choices[0].message.content}
-/debug
-from fastapi.responses import HTMLResponse
+
 
 @app.get("/q", response_class=HTMLResponse)
 def chat_ui():
@@ -135,8 +142,3 @@ async function send() {
 </body>
 </html>
 """
-@app.post("/chat")
-def chat(request: ChatRequest):
-    ...
-    return {"response": response.choices[0].message.content}
-# ---- PASTE THE CHAT UI CODE HERE ----
