@@ -135,3 +135,8 @@ async function send() {
 </body>
 </html>
 """
+@app.post("/chat")
+def chat(request: ChatRequest):
+    ...
+    return {"response": response.choices[0].message.content}
+# ---- PASTE THE CHAT UI CODE HERE ----
