@@ -34,8 +34,12 @@ def chat(request: ChatRequest):
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": request.message}
+memory = load_memory()
+messages=[
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "system", "content": f"Known information about Eugene: {memory['notes']}"},
+    {"role": "user", "content": request.message}
+]
         ],
         temperature=0.7
     )
