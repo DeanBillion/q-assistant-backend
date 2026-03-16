@@ -50,6 +50,11 @@ def chat_ui():
 <html>
 <head>
 <title>Q Assistant</title>
+
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <style>
 body {
     font-family: Arial, sans-serif;
