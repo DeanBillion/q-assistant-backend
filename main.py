@@ -220,11 +220,39 @@ async function send(){
 
 # -------- DASHBOARD --------
 
-@app.get("/dashboard")
-def dashboard():
+@app.get("/daily-brief")
+def daily_brief():
+
     memory = load_memory()
-    return {
-        "tasks": memory["tasks"],
-        "work": memory["work"],
-        "personal": memory["personal"]
-    }
+
+    tasks = memory["tasks"][-5:]   # latest tasks
+    work = memory["work"][-5:]
+
+    prompt = f"""
+    You are Q, a strategic assistant.
+
+    Based on the following:
+
+    Tasks:
+    {tasks}
+
+    Work:
+    {work}
+
+    Generate a concise daily briefing.
+
+    Format:
+
+    1. Top 3 Priorities
+    2. Key Risks
+    3. Recommended Actions
+    Keep it practical and direct.
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.5
+    )
+
+    return {"brief": response.choices[0].message.content}
