@@ -26,13 +26,11 @@ def load_memory():
         with open(MEMORY_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"notes": []}
-
+        return {"personal": [], "work": [], "tasks": []}
 
 def save_memory(memory):
     with open(MEMORY_FILE, "w") as f:
         json.dump(memory, f, indent=2)
-
 
 # -------- DATA MODEL --------
 
@@ -78,15 +76,15 @@ def chat(request: ChatRequest):
 
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "system", "content": f"Known information about Eugene: {memory['notes']}"},
-            {"role": "user", "content": request.message}
-        ],
-        temperature=0.7
-    )
-
-    return {"response": response.choices[0].message.content}
+messages=[
+    {"role": "system", "content": SYSTEM_PROMPT},
+    {"role": "system", "content": f"""
+    Known Personal Info: {memory['personal']}
+    Work Context: {memory['work']}
+    Tasks: {memory['tasks']}
+    """},
+    {"role": "user", "content": request.message}
+]
 
 
 # -------- WEB INTERFACE --------
@@ -188,3 +186,10 @@ async function send(){
 </body>
 </html>
 """
+@app.get("/dashboard")
+def dashboard():
+    memory = load_memory()
+    return {
+        "tasks": memory["tasks"],
+        "work": memory["work"]
+    }
