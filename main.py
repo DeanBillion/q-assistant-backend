@@ -59,6 +59,11 @@ class ChatRequest(BaseModel):
 
 # -------- BASIC ROUTES --------
 
+@app.get("/")
+def root():
+    return {"message": "Q Assistant API is running"}
+
+
 @app.get("/health")
 def health():
     return {"status": "Q backend running"}
@@ -78,7 +83,6 @@ def manifest():
 
 @app.post("/remember")
 def remember(request: ChatRequest):
-
     memory = load_memory()
     memory = classify_and_store(request.message, memory)
     save_memory(memory)
@@ -91,30 +95,87 @@ def remember(request: ChatRequest):
 @app.post("/chat")
 def chat(request: ChatRequest):
 
+    try:
+        memory = load_memory()
+
+        # Auto-store
+        memory = classify_and_store(request.message, memory)
+        save_memory(memory)
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {
+                    "role": "system",
+                    "content": f"""
+                    Personal: {memory.get('personal', [])}
+                    Work: {memory.get('work', [])}
+                    Tasks: {memory.get('tasks', [])}
+                    """
+                },
+                {"role": "user", "content": request.message}
+            ],
+            temperature=0.7
+        )
+
+        return {"response": response.choices[0].message.content}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# -------- DAILY BRIEF --------
+
+@app.get("/daily-brief")
+def daily_brief():
+
+    try:
+        memory = load_memory()
+
+        tasks = memory.get("tasks", [])[-5:]
+        work = memory.get("work", [])[-5:]
+
+        prompt = f"""
+        You are Q, a strategic assistant.
+
+        Tasks:
+        {tasks}
+
+        Work:
+        {work}
+
+        Generate:
+
+        1. Top 3 Priorities
+        2. Key Risks
+        3. Recommended Actions
+
+        Keep it practical and concise.
+        """
+
+        response = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.5
+        )
+
+        return {"brief": response.choices[0].message.content}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# -------- DASHBOARD --------
+
+@app.get("/dashboard")
+def dashboard():
     memory = load_memory()
-
-    # Auto-store every message
-    memory = classify_and_store(request.message, memory)
-    save_memory(memory)
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "system",
-                "content": f"""
-                Known Personal Info: {memory['personal']}
-                Work Context: {memory['work']}
-                Tasks: {memory['tasks']}
-                """
-            },
-            {"role": "user", "content": request.message}
-        ],
-        temperature=0.7
-    )
-
-    return {"response": response.choices[0].message.content}
+    return {
+        "tasks": memory.get("tasks", []),
+        "work": memory.get("work", []),
+        "personal": memory.get("personal", [])
+    }
 
 
 # -------- WEB INTERFACE --------
@@ -172,6 +233,7 @@ button{
     background:#22c55e;
     border:none;
     color:white;
+    margin-left:5px;
 }
 </style>
 
@@ -186,6 +248,7 @@ button{
 <div id="inputArea">
 <input id="message" placeholder="Ask Q something..." />
 <button onclick="send()">Send</button>
+<button onclick="getBrief()">Brief</button>
 </div>
 
 <script>
@@ -211,48 +274,17 @@ async function send(){
     chat.innerHTML += `<div class='message q'><b>Q:</b> ${data.response}</div>`
     chat.scrollTop = chat.scrollHeight
 }
+
+async function getBrief(){
+    const chat = document.getElementById("chat")
+
+    const response = await fetch("/daily-brief")
+    const data = await response.json()
+
+    chat.innerHTML += `<div class='message q'><b>Q Brief:</b><br>${data.brief}</div>`
+}
 </script>
 
 </body>
 </html>
 """
-
-
-# -------- DASHBOARD --------
-
-@app.get("/daily-brief")
-def daily_brief():
-
-    memory = load_memory()
-
-    tasks = memory["tasks"][-5:]   # latest tasks
-    work = memory["work"][-5:]
-
-    prompt = f"""
-    You are Q, a strategic assistant.
-
-    Based on the following:
-
-    Tasks:
-    {tasks}
-
-    Work:
-    {work}
-
-    Generate a concise daily briefing.
-
-    Format:
-
-    1. Top 3 Priorities
-    2. Key Risks
-    3. Recommended Actions
-    Keep it practical and direct.
-    """
-
-    response = client.chat.completions.create(
-        model="gpt-4.1-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.5
-    )
-
-    return {"brief": response.choices[0].message.content}
