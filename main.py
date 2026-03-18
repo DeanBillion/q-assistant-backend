@@ -28,9 +28,28 @@ def load_memory():
     except:
         return {"personal": [], "work": [], "tasks": []}
 
+
 def save_memory(memory):
     with open(MEMORY_FILE, "w") as f:
         json.dump(memory, f, indent=2)
+
+
+# -------- AUTO CLASSIFIER --------
+
+def classify_and_store(message, memory):
+    text = message.lower()
+
+    if any(word in text for word in ["meeting", "client", "site", "project"]):
+        memory["work"].append(message)
+
+    elif any(word in text for word in ["task", "todo", "remind", "follow up"]):
+        memory["tasks"].append(message)
+
+    else:
+        memory["personal"].append(message)
+
+    return memory
+
 
 # -------- DATA MODEL --------
 
@@ -61,10 +80,10 @@ def manifest():
 def remember(request: ChatRequest):
 
     memory = load_memory()
-    memory["notes"].append(request.message)
+    memory = classify_and_store(request.message, memory)
     save_memory(memory)
 
-    return {"status": "saved"}
+    return {"status": "saved", "memory": memory}
 
 
 # -------- CHAT ENGINE --------
@@ -74,17 +93,28 @@ def chat(request: ChatRequest):
 
     memory = load_memory()
 
+    # Auto-store every message
+    memory = classify_and_store(request.message, memory)
+    save_memory(memory)
+
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
-messages=[
-    {"role": "system", "content": SYSTEM_PROMPT},
-    {"role": "system", "content": f"""
-    Known Personal Info: {memory['personal']}
-    Work Context: {memory['work']}
-    Tasks: {memory['tasks']}
-    """},
-    {"role": "user", "content": request.message}
-]
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {
+                "role": "system",
+                "content": f"""
+                Known Personal Info: {memory['personal']}
+                Work Context: {memory['work']}
+                Tasks: {memory['tasks']}
+                """
+            },
+            {"role": "user", "content": request.message}
+        ],
+        temperature=0.7
+    )
+
+    return {"response": response.choices[0].message.content}
 
 
 # -------- WEB INTERFACE --------
@@ -186,10 +216,15 @@ async function send(){
 </body>
 </html>
 """
+
+
+# -------- DASHBOARD --------
+
 @app.get("/dashboard")
 def dashboard():
     memory = load_memory()
     return {
         "tasks": memory["tasks"],
-        "work": memory["work"]
+        "work": memory["work"],
+        "personal": memory["personal"]
     }
