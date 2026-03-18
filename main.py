@@ -1,8 +1,9 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from openai import OpenAI
 import os
+import json
 
 app = FastAPI(title="Q Assistant API")
 
@@ -15,9 +16,31 @@ Help Eugene plan clearly, think strategically,
 and balance business and family life.
 """
 
+MEMORY_FILE = "memory.json"
+
+
+# -------- MEMORY FUNCTIONS --------
+
+def load_memory():
+    try:
+        with open(MEMORY_FILE, "r") as f:
+            return json.load(f)
+    except:
+        return {"notes": []}
+
+
+def save_memory(memory):
+    with open(MEMORY_FILE, "w") as f:
+        json.dump(memory, f, indent=2)
+
+
+# -------- DATA MODEL --------
+
 class ChatRequest(BaseModel):
     message: str
 
+
+# -------- BASIC ROUTES --------
 
 @app.get("/health")
 def health():
@@ -29,23 +52,44 @@ def debug():
     return {"api_key_loaded": bool(os.getenv("OPENAI_API_KEY"))}
 
 
+@app.get("/manifest.json")
+def manifest():
+    return FileResponse("manifest.json")
+
+
+# -------- MEMORY SAVE --------
+
+@app.post("/remember")
+def remember(request: ChatRequest):
+
+    memory = load_memory()
+    memory["notes"].append(request.message)
+    save_memory(memory)
+
+    return {"status": "saved"}
+
+
+# -------- CHAT ENGINE --------
+
 @app.post("/chat")
 def chat(request: ChatRequest):
+
+    memory = load_memory()
+
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-memory = load_memory()
-messages=[
-    {"role": "system", "content": SYSTEM_PROMPT},
-    {"role": "system", "content": f"Known information about Eugene: {memory['notes']}"},
-    {"role": "user", "content": request.message}
-]
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"Known information about Eugene: {memory['notes']}"},
+            {"role": "user", "content": request.message}
         ],
         temperature=0.7
     )
 
     return {"response": response.choices[0].message.content}
 
+
+# -------- WEB INTERFACE --------
 
 @app.get("/q", response_class=HTMLResponse)
 def chat_ui():
@@ -61,54 +105,48 @@ def chat_ui():
 
 <style>
 body {
-    font-family: Arial, sans-serif;
+    font-family: Arial;
     background:#0f172a;
     color:white;
     display:flex;
     flex-direction:column;
     align-items:center;
-    margin:0;
 }
-#chat {
+
+#chat{
     width:90%;
     max-width:700px;
     height:70vh;
     overflow-y:auto;
-    border:1px solid #334155;
-    padding:15px;
-    margin-top:20px;
     background:#020617;
     border-radius:10px;
+    padding:15px;
 }
-.message { margin-bottom:12px; }
-.user { color:#38bdf8; }
-.q { color:#4ade80; }
 
-#inputArea {
+.message{margin-bottom:10px;}
+.user{color:#38bdf8;}
+.q{color:#4ade80;}
+
+#inputArea{
     display:flex;
     width:90%;
     max-width:700px;
     margin-top:10px;
 }
 
-input {
+input{
     flex:1;
     padding:10px;
-    font-size:16px;
-    border-radius:6px;
-    border:none;
 }
 
-button {
-    padding:10px 15px;
-    margin-left:6px;
-    border:none;
+button{
+    padding:10px;
     background:#22c55e;
+    border:none;
     color:white;
-    border-radius:6px;
-    cursor:pointer;
 }
 </style>
+
 </head>
 
 <body>
@@ -123,28 +161,27 @@ button {
 </div>
 
 <script>
-async function send() {
-    const input = document.getElementById("message");
-    const chat = document.getElementById("chat");
+async function send(){
 
-    const text = input.value;
-    if (!text) return;
+    const input = document.getElementById("message")
+    const chat = document.getElementById("chat")
 
-    chat.innerHTML += `<div class='message user'><b>You:</b> ${text}</div>`;
-    input.value = "";
+    const text = input.value
+    if(!text) return
 
-    const response = await fetch("/chat", {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({message: text})
-    });
+    chat.innerHTML += `<div class='message user'><b>You:</b> ${text}</div>`
+    input.value=""
 
-    const data = await response.json();
+    const response = await fetch("/chat",{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({message:text})
+    })
 
-    chat.innerHTML += `<div class='message q'><b>Q:</b> ${data.response}</div>`;
-    chat.scrollTop = chat.scrollHeight;
+    const data = await response.json()
+
+    chat.innerHTML += `<div class='message q'><b>Q:</b> ${data.response}</div>`
+    chat.scrollTop = chat.scrollHeight
 }
 </script>
 
