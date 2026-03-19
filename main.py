@@ -4,16 +4,25 @@ from fastapi.responses import HTMLResponse, FileResponse
 from openai import OpenAI
 import os
 import json
+from datetime import datetime
 
 app = FastAPI(title="Q Assistant API")
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 SYSTEM_PROMPT = """
-You are Q.
-A warm, growth-oriented personal AI companion.
-Help Eugene plan clearly, think strategically,
-and balance business and family life.
+You are Q, a high-performance personal AI assistant.
+
+Your role:
+- Help Eugene think clearly and act decisively
+- Prioritize actions and remove noise
+- Balance business execution with personal clarity
+
+Style:
+- Direct
+- Practical
+- Strategic
+- No fluff
 """
 
 MEMORY_FILE = "memory.json"
@@ -26,7 +35,11 @@ def load_memory():
         with open(MEMORY_FILE, "r") as f:
             return json.load(f)
     except:
-        return {"personal": [], "work": [], "tasks": []}
+        return {
+            "personal": [],
+            "work": [],
+            "tasks": []
+        }
 
 
 def save_memory(memory):
@@ -34,21 +47,41 @@ def save_memory(memory):
         json.dump(memory, f, indent=2)
 
 
-# -------- AUTO CLASSIFIER --------
+# -------- INTELLIGENCE LAYER --------
 
 def classify_and_store(message, memory):
     text = message.lower()
 
-    if any(word in text for word in ["meeting", "client", "site", "project"]):
-        memory["work"].append(message)
+    # Detect TASKS (priority)
+    if any(word in text for word in [
+        "task", "todo", "remind", "follow up", "prepare", "schedule", "call"
+    ]):
+        memory["tasks"].append({
+            "text": message,
+            "created": datetime.now().isoformat()
+        })
 
-    elif any(word in text for word in ["task", "todo", "remind", "follow up"]):
-        memory["tasks"].append(message)
+    # Detect WORK context
+    elif any(word in text for word in [
+        "meeting", "client", "site", "project", "demo", "ldv"
+    ]):
+        memory["work"].append({
+            "text": message,
+            "created": datetime.now().isoformat()
+        })
 
+    # Default → personal
     else:
-        memory["personal"].append(message)
+        memory["personal"].append({
+            "text": message,
+            "created": datetime.now().isoformat()
+        })
 
     return memory
+
+
+def extract_recent(memory, key, limit=5):
+    return [item["text"] for item in memory.get(key, [])[-limit:]]
 
 
 # -------- DATA MODEL --------
@@ -61,36 +94,32 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "Q Assistant API is running"}
-
+    return {"message": "Q Assistant is running"}
 
 @app.get("/health")
 def health():
-    return {"status": "Q backend running"}
-
+    return {"status": "ok"}
 
 @app.get("/debug")
 def debug():
     return {"api_key_loaded": bool(os.getenv("OPENAI_API_KEY"))}
-
 
 @app.get("/manifest.json")
 def manifest():
     return FileResponse("manifest.json")
 
 
-# -------- MEMORY SAVE --------
+# -------- MEMORY --------
 
 @app.post("/remember")
 def remember(request: ChatRequest):
     memory = load_memory()
     memory = classify_and_store(request.message, memory)
     save_memory(memory)
+    return {"status": "stored"}
 
-    return {"status": "saved", "memory": memory}
 
-
-# -------- CHAT ENGINE --------
+# -------- CHAT --------
 
 @app.post("/chat")
 def chat(request: ChatRequest):
@@ -98,9 +127,13 @@ def chat(request: ChatRequest):
     try:
         memory = load_memory()
 
-        # Auto-store
+        # Store automatically
         memory = classify_and_store(request.message, memory)
         save_memory(memory)
+
+        tasks = extract_recent(memory, "tasks")
+        work = extract_recent(memory, "work")
+        personal = extract_recent(memory, "personal")
 
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
@@ -109,20 +142,29 @@ def chat(request: ChatRequest):
                 {
                     "role": "system",
                     "content": f"""
-                    Personal: {memory.get('personal', [])}
-                    Work: {memory.get('work', [])}
-                    Tasks: {memory.get('tasks', [])}
+                    Current Context:
+
+                    Tasks:
+                    {tasks}
+
+                    Work:
+                    {work}
+
+                    Personal:
+                    {personal}
                     """
                 },
                 {"role": "user", "content": request.message}
             ],
-            temperature=0.7
+            temperature=0.6
         )
 
-        return {"response": response.choices[0].message.content}
+        return {
+            "response": response.choices[0].message.content
+        }
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"response": f"System error: {str(e)}"}
 
 
 # -------- DAILY BRIEF --------
@@ -133,11 +175,13 @@ def daily_brief():
     try:
         memory = load_memory()
 
-        tasks = memory.get("tasks", [])[-5:]
-        work = memory.get("work", [])[-5:]
+        tasks = extract_recent(memory, "tasks")
+        work = extract_recent(memory, "work")
 
         prompt = f"""
-        You are Q, a strategic assistant.
+        You are Q.
+
+        Generate a sharp daily execution brief.
 
         Tasks:
         {tasks}
@@ -145,25 +189,25 @@ def daily_brief():
         Work:
         {work}
 
-        Generate:
+        Output:
 
         1. Top 3 Priorities
-        2. Key Risks
-        3. Recommended Actions
+        2. Immediate Risks
+        3. Next Actions
 
-        Keep it practical and concise.
+        Keep it concise and actionable.
         """
 
         response = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.5
+            temperature=0.4
         )
 
         return {"brief": response.choices[0].message.content}
 
     except Exception as e:
-        return {"error": str(e)}
+        return {"brief": f"Error: {str(e)}"}
 
 
 # -------- DASHBOARD --------
@@ -171,14 +215,10 @@ def daily_brief():
 @app.get("/dashboard")
 def dashboard():
     memory = load_memory()
-    return {
-        "tasks": memory.get("tasks", []),
-        "work": memory.get("work", []),
-        "personal": memory.get("personal", [])
-    }
+    return memory
 
 
-# -------- WEB INTERFACE --------
+# -------- WEB UI --------
 
 @app.get("/q", response_class=HTMLResponse)
 def chat_ui():
@@ -187,56 +227,16 @@ def chat_ui():
 <html>
 <head>
 <title>Q Assistant</title>
-
-<link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#0f172a">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-body {
-    font-family: Arial;
-    background:#0f172a;
-    color:white;
-    display:flex;
-    flex-direction:column;
-    align-items:center;
-}
-
-#chat{
-    width:90%;
-    max-width:700px;
-    height:70vh;
-    overflow-y:auto;
-    background:#020617;
-    border-radius:10px;
-    padding:15px;
-}
-
-.message{margin-bottom:10px;}
-.user{color:#38bdf8;}
-.q{color:#4ade80;}
-
-#inputArea{
-    display:flex;
-    width:90%;
-    max-width:700px;
-    margin-top:10px;
-}
-
-input{
-    flex:1;
-    padding:10px;
-}
-
-button{
-    padding:10px;
-    background:#22c55e;
-    border:none;
-    color:white;
-    margin-left:5px;
-}
+body { background:#0f172a; color:white; font-family:Arial; text-align:center; }
+#chat { width:90%; max-width:700px; height:70vh; overflow:auto; margin:auto; background:#020617; padding:15px; border-radius:10px;}
+.user { color:#38bdf8; }
+.q { color:#4ade80; }
+input { width:70%; padding:10px; }
+button { padding:10px; margin-left:5px; background:#22c55e; color:white; border:none; }
 </style>
-
 </head>
 
 <body>
@@ -245,43 +245,40 @@ button{
 
 <div id="chat"></div>
 
-<div id="inputArea">
-<input id="message" placeholder="Ask Q something..." />
+<input id="message" placeholder="Ask Q..." />
 <button onclick="send()">Send</button>
-<button onclick="getBrief()">Brief</button>
-</div>
+<button onclick="brief()">Brief</button>
 
 <script>
 async function send(){
+    let input = document.getElementById("message");
+    let chat = document.getElementById("chat");
 
-    const input = document.getElementById("message")
-    const chat = document.getElementById("chat")
+    let text = input.value;
+    if(!text) return;
 
-    const text = input.value
-    if(!text) return
+    chat.innerHTML += `<div class='user'>You: ${text}</div>`;
+    input.value = "";
 
-    chat.innerHTML += `<div class='message user'><b>You:</b> ${text}</div>`
-    input.value=""
-
-    const response = await fetch("/chat",{
+    let res = await fetch("/chat", {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({message:text})
-    })
+        body: JSON.stringify({message:text})
+    });
 
-    const data = await response.json()
+    let data = await res.json();
 
-    chat.innerHTML += `<div class='message q'><b>Q:</b> ${data.response}</div>`
-    chat.scrollTop = chat.scrollHeight
+    chat.innerHTML += `<div class='q'>Q: ${data.response}</div>`;
+    chat.scrollTop = chat.scrollHeight;
 }
 
-async function getBrief(){
-    const chat = document.getElementById("chat")
+async function brief(){
+    let chat = document.getElementById("chat");
 
-    const response = await fetch("/daily-brief")
-    const data = await response.json()
+    let res = await fetch("/daily-brief");
+    let data = await res.json();
 
-    chat.innerHTML += `<div class='message q'><b>Q Brief:</b><br>${data.brief}</div>`
+    chat.innerHTML += `<div class='q'>Q Brief:<br>${data.brief}</div>`;
 }
 </script>
 
